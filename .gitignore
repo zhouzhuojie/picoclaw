@@ -14,7 +14,8 @@ cmd/picoclaw/workspace
 
 # Picoclaw specific
 
-# PicoClaw
+# Development
+todo.md
 .picoclaw/
 config.json
 sessions/

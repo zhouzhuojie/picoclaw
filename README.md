@@ -497,6 +497,23 @@ PicoClaw runs in a sandboxed environment by default. The agent can only access f
 |--------|---------|-------------|
 | `workspace` | `~/.picoclaw/workspace` | Working directory for the agent |
 | `restrict_to_workspace` | `true` | Restrict file/command access to workspace |
+| `max_tool_iterations` | `20` | Maximum number of tool calls per message |
+| `max_turns` | `0` (unlimited) | Maximum turns in a conversation (0 = unlimited) |
+| `max_retries` | `3` | Auto-retry failed LLM/tool calls |
+| `retry_delay` | `1` | Seconds to wait between retries |
+| `parallel_tools` | `false` | Execute multiple tool calls in parallel |
+
+#### What Do These Configs Do?
+
+- **`max_tool_iterations`**: Limits how many tools can be called in one response. Prevents infinite loops. Default (20) is usually enough for complex tasks.
+
+- **`max_turns`**: Limits conversation turns. Set to a number (e.g., `10`) to prevent runaway conversations. Use `0` for unlimited.
+
+- **`max_retries`**: Automatically retries failed LLM or tool calls. Helps with temporary issues like rate limits or network timeouts. Set to `0` to disable.
+
+- **`retry_delay`**: How many seconds to wait before each retry attempt. Default `1` second works well for most cases.
+
+- **`parallel_tools`**: When `true`, multiple tool calls in the same response run simultaneously. Can speed up tasks but may cause race conditions. Default (`false`) runs tools one by one.
 
 #### Protected Tools
 

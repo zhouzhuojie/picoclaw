@@ -66,6 +66,11 @@ type AgentDefaults struct {
 	MaxTokens           int     `json:"max_tokens" env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOKENS"`
 	Temperature         float64 `json:"temperature" env:"PICOCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
 	MaxToolIterations   int     `json:"max_tool_iterations" env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
+	// New fields for improved agent loop
+	MaxTurns      int  `json:"max_turns" env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TURNS"`       // Max turns (0 = unlimited)
+	MaxRetries    int  `json:"max_retries" env:"PICOCLAW_AGENTS_DEFAULTS_MAX_RETRIES"`   // Max retries for LLM/tools
+	RetryDelay    int  `json:"retry_delay" env:"PICOCLAW_AGENTS_DEFAULTS_RETRY_DELAY"`   // Retry delay in seconds
+	ParallelTools bool  `json:"parallel_tools" env:"PICOCLAW_AGENTS_DEFAULTS_PARALLEL_TOOLS"` // Parallel tool execution
 }
 
 type ChannelsConfig struct {
@@ -225,6 +230,10 @@ func DefaultConfig() *Config {
 				MaxTokens:           8192,
 				Temperature:         0.7,
 				MaxToolIterations:   20,
+				MaxTurns:       0,         // 0 = unlimited
+				MaxRetries:     3,         // Default 3 retries
+				RetryDelay:     1,         // 1 second default
+				ParallelTools:  false,     // Default sequential (matches pi-mono)
 			},
 		},
 		Channels: ChannelsConfig{
