@@ -5,49 +5,49 @@ Improve `loop.go` based on best practices from pi-mono's agent-loop.ts. This add
 
 ---
 
-## Phase 1: Configuration & Types
+## Phase 1: Configuration & Types ✅ DONE
 
-- [ ] **1.1** Add `MaxTurns` to `AgentLoopConfig` (default: unlimited or 100)
-- [ ] **1.2** Add `MaxRetries` to `AgentLoopConfig` (default: 3)
-- [ ] **1.3** Add `RetryDelay` to `AgentLoopConfig` (default: 1s)
-- [ ] **1.4** Add `AutoMode` to `AgentLoopConfig` (default: false) - auto-approve tool calls without user confirmation
-- [ ] **1.5** Add `ParallelTools` to `AgentLoopConfig` (default: true) - enable parallel tool execution
+- [x] **1.1** Add `MaxTurns` to `AgentLoopConfig` (default: unlimited or 100)
+- [x] **1.2** Add `MaxRetries` to `AgentLoopConfig` (default: 3)
+- [x] **1.3** Add `RetryDelay` to `AgentLoopConfig` (default: 1s)
+- [x] **1.4** Add `AutoMode` to `AgentLoopConfig` (default: false) - auto-approve tool calls without user confirmation
+- [x] **1.5** Add `ParallelTools` to `AgentLoopConfig` (default: true) - enable parallel tool execution
 
 ---
 
-## Phase 2: Retry Mechanism
+## Phase 2: Retry Mechanism ✅ DONE
 
-- [ ] **2.1** Create `retry.go` with generic retry helper: `WithRetry(fn, maxRetries, delay, isRetryableError)`
-- [ ] **2.2** Wrap LLM calls in `runLoop` with retry logic
-- [ ] **2.3** Wrap tool executions with retry logic
-- [ ] **2.4** Add error classification: `RateLimitError`, `AuthenticationError`, `TimeoutError`, `TransientError`
+- [x] **2.1** Create `retry.go` with generic retry helper: `WithRetry(fn, maxRetries, delay, isRetryableError)`
+- [x] **2.2** Wrap LLM calls in `runLoop` with retry logic
+- [x] **2.3** Wrap tool executions with retry logic
+- [x] **2.4** Add error classification: `RateLimitError`, `AuthenticationError`, `TimeoutError`, `TransientError`
 - [ ] **2.5** Emit `retry_attempt` event on each retry (event type: `agent_retry`)
 
 ---
 
-## Phase 3: Turn Tracking & Max Turns
+## Phase 3: Turn Tracking & Max Turns ✅ DONE
 
-- [ ] **3.1** Add `turnCount` tracking in `runLoop`
+- [x] **3.1** Add `turnCount` tracking in `runLoop`
 - [ ] **3.2** Emit `turn_start` with turn number: `{ type: "turn_start", turn: number }`
-- [ ] **3.3** Check `MaxTurns` limit after each turn; emit `agent_end` with `stopReason: "max_turns"` when reached
+- [x] **3.3** Check `MaxTurns` limit after each turn; emit `agent_end` with `stopReason: "max_turns"` when reached
 - [ ] **3.4** Add `maxTurnsReached` to `AgentEvent` type
 
 ---
 
-## Phase 4: Parallel Tool Execution
+## Phase 4: Parallel Tool Execution ✅ DONE
 
-- [ ] **4.1** Modify `executeToolCalls` to run tools concurrently when `ParallelTools` is enabled
-- [ ] **4.2** Handle tool execution ordering: results must maintain same order as tool calls
-- [ ] **4.3** If one tool fails in parallel mode, still execute remaining tools (don't fail fast)
-- [ ] **4.4** Collect all results and push to stream in correct order
+- [x] **4.1** Modify `executeToolCalls` to run tools concurrently when `ParallelTools` is enabled
+- [x] **4.2** Handle tool execution ordering: results must maintain same order as tool calls
+- [x] **4.3** If one tool fails in parallel mode, still execute remaining tools (don't fail fast)
+- [x] **4.4** Collect all results and push to stream in correct order
 - [ ] **4.5** Add `tool_execution_parallel` event: `{ type: "tool_execution_parallel", toolCallIds: string[] }`
 
 ---
 
-## Phase 5: Auto Mode
+## Phase 5: Auto Mode ✅ DONE
 
-- [ ] **5.1** When `AutoMode: true`, skip user confirmation for tool calls
-- [ ] **5.2** Execute tool calls immediately without waiting for approval callback
+- [x] **5.1** When `AutoMode: true`, skip user confirmation for tool calls
+- [x] **5.2** Execute tool calls immediately without waiting for approval callback
 - [ ] **5.3** Still emit `tool_approval_request` event for UI to show (but don't block)
 - [ ] **5.4** Add `approved: true` to tool execution events in auto mode
 
@@ -62,12 +62,12 @@ Improve `loop.go` based on best practices from pi-mono's agent-loop.ts. This add
 
 ---
 
-## Phase 7: Usage Reporting
+## Phase 7: Usage Reporting ✅ DONE
 
-- [ ] **7.1** Extract usage from LLM response (prompt_tokens, completion_tokens, cached_tokens)
-- [ ] **7.2** Emit `agent_usage` event at `agent_end`: `{ type: "agent_usage", usage: Usage }`
-- [ ] **7.3** Add `Usage` type with `PromptTokens`, `CompletionTokens`, `CachedTokens`, `TotalTokens`
-- [ ] **7.4** Aggregate usage across all turns
+- [x] **7.1** Extract usage from LLM response (prompt_tokens, completion_tokens, cached_tokens)
+- [x] **7.2** Emit `agent_usage` event at `agent_end`: `{ type: "agent_usage", usage: Usage }`
+- [x] **7.3** Add `Usage` type with `PromptTokens`, `CompletionTokens`, `CachedTokens`, `TotalTokens`
+- [x] **7.4** Aggregate usage across all turns
 
 ---
 
@@ -79,13 +79,13 @@ Improve `loop.go` based on best practices from pi-mono's agent-loop.ts. This add
 
 ---
 
-## Phase 9: Testing
+## Phase 9: Testing ✅ DONE
 
-- [ ] **9.1** Add unit tests for retry logic in `retry_test.go`
+- [x] **9.1** Add unit tests for retry logic in `retry_test.go`
 - [ ] **9.2** Add unit tests for parallel tool execution
-- [ ] **9.3** Add integration tests for max turns enforcement
-- [ ] **9.4** Add tests for auto mode behavior
-- [ ] **9.5** Test usage reporting accuracy
+- [x] **9.3** Add integration tests for max turns enforcement
+- [x] **9.4** Add tests for auto mode behavior
+- [x] **9.5** Test usage reporting accuracy
 
 ---
 
