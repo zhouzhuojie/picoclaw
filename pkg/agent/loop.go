@@ -249,7 +249,7 @@ func (al *AgentLoop) ProcessHeartbeat(ctx context.Context, content, channel, cha
 		Channel:         channel,
 		ChatID:          chatID,
 		UserMessage:     content,
-		DefaultResponse: "I've completed processing but have no response to give.",
+		DefaultResponse: "Heartbeat processed.",
 		EnableSummary:   false,
 		SendResponse:    false,
 		NoHistory:       true, // Don't load session history for heartbeat
@@ -283,7 +283,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		Channel:         msg.Channel,
 		ChatID:          msg.ChatID,
 		UserMessage:     msg.Content,
-		DefaultResponse: "I've completed processing but have no response to give.",
+		DefaultResponse: "I've processed your request but received an empty response. Could you clarify what you'd like me to do?",
 		EnableSummary:   true,
 		SendResponse:    false,
 	})
@@ -428,6 +428,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 	turnCount := 0
 	var finalContent string
 	var stopReason StopReason
+	var lastToolResults []string // Track tool results for contextual responses
 
 	// Reset usage for this run
 	al.usage = Usage{}
@@ -445,6 +446,12 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 					"max_turns":  al.loopConfig.MaxTurns,
 					"iterations": iteration,
 				})
+			// Generate contextual message for max turns
+			if iteration > 1 && len(lastToolResults) > 0 {
+				finalContent = fmt.Sprintf("I've completed %d tool call(s) but reached the maximum number of turns (%d). What would you like me to do next?", iteration-1, al.loopConfig.MaxTurns)
+			} else if iteration > 1 {
+				finalContent = fmt.Sprintf("I've processed your request through %d iterations but reached the maximum number of turns (%d). What would you like me to do next?", iteration-1, al.loopConfig.MaxTurns)
+			}
 			break
 		}
 
@@ -583,11 +590,40 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 			toolResults = al.executeToolsSequential(ctx, response.ToolCalls, opts)
 		}
 
+		// Track tool results for contextual responses
+		for _, tr := range toolResults {
+			truncated := tr.Content
+			if len(truncated) > 100 {
+				truncated = truncated[:100] + "..."
+			}
+			lastToolResults = append(lastToolResults, truncated)
+		}
+
 		// Add tool results to messages
 		for _, tr := range toolResults {
 			messages = append(messages, tr)
 			al.sessions.AddFullMessage(opts.SessionKey, tr)
 		}
+	}
+
+	// Handle case where loop exits without content
+	if finalContent == "" {
+		stopReason = StopReasonMaxIter
+		
+		// Generate contextual message based on what happened
+		if iteration > 0 && len(lastToolResults) > 0 {
+			// Tools were executed, generate response based on last tool result
+			lastResult := lastToolResults[len(lastToolResults)-1]
+			if len(lastResult) > 0 {
+				finalContent = fmt.Sprintf("I've completed the task. Here's the result: %s", lastResult)
+			} else {
+				finalContent = "I've completed the tool execution successfully."
+			}
+		} else if iteration > 0 {
+			// Iterations happened but no tools
+			finalContent = fmt.Sprintf("I've processed your request but have no additional response (completed %d iterations).", iteration)
+		}
+		// else: finalContent stays empty, will use DefaultResponse in runAgentLoop
 	}
 
 	// Log final usage
