@@ -231,11 +231,11 @@ func DefaultConfig() *Config {
 				MaxTokens:           8192,
 				Temperature:         0.7,
 				MaxToolIterations:   20,
-				MaxTurns:            0,         // 0 = unlimited
-				MaxRetries:          3,         // Default 3 retries
-				RetryDelay:          1,         // 1 second default
-				AutoMode:            false,     // Default manual approval
-				ParallelTools:       true,      // Default to parallel
+				MaxTurns:       0,         // 0 = unlimited
+				MaxRetries:     3,         // Default 3 retries
+				RetryDelay:     1,         // 1 second default
+				AutoMode:       false,     // Default manual approval
+				ParallelTools:  false,     // Default sequential (matches pi-mono)
 			},
 		},
 		Channels: ChannelsConfig{
