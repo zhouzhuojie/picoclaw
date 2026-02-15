@@ -7,11 +7,13 @@ Improve `loop.go` based on best practices from pi-mono's agent-loop.ts. This add
 
 ## Phase 1: Configuration & Types ✅ DONE
 
-- [x] **1.1** Add `MaxTurns` to `AgentLoopConfig` (default: unlimited or 100)
+- [x] **1.1** Add `MaxTurns` to `AgentLoopConfig` (default: 0 = unlimited)
 - [x] **1.2** Add `MaxRetries` to `AgentLoopConfig` (default: 3)
 - [x] **1.3** Add `RetryDelay` to `AgentLoopConfig` (default: 1s)
 - [x] **1.4** Add `AutoMode` to `AgentLoopConfig` (default: false) - auto-approve tool calls without user confirmation
-- [x] **1.5** Add `ParallelTools` to `AgentLoopConfig` (default: true) - enable parallel tool execution
+- [x] **1.5** Add `ParallelTools` to `AgentLoopConfig` (default: false) - sequential by default to match pi-mono
+
+**Defaults match pi-mono**: ParallelTools=false (sequential), AutoMode=false, MaxTurns=0 (unlimited)
 
 ---
 
@@ -29,7 +31,7 @@ Improve `loop.go` based on best practices from pi-mono's agent-loop.ts. This add
 
 - [x] **3.1** Add `turnCount` tracking in `runLoop`
 - [ ] **3.2** Emit `turn_start` with turn number: `{ type: "turn_start", turn: number }`
-- [x] **3.3** Check `MaxTurns` limit after each turn; emit `agent_end` with `stopReason: "max_turns"` when reached
+- [x] **3.3** Check `MaxTurns` limit after each turn; stop with `stopReason: "max_turns"` when reached
 - [ ] **3.4** Add `maxTurnsReached` to `AgentEvent` type
 
 ---
@@ -64,10 +66,11 @@ Improve `loop.go` based on best practices from pi-mono's agent-loop.ts. This add
 
 ## Phase 7: Usage Reporting ✅ DONE
 
-- [x] **7.1** Extract usage from LLM response (prompt_tokens, completion_tokens, cached_tokens)
-- [x] **7.2** Emit `agent_usage` event at `agent_end`: `{ type: "agent_usage", usage: Usage }`
-- [x] **7.3** Add `Usage` type with `PromptTokens`, `CompletionTokens`, `CachedTokens`, `TotalTokens`
+- [x] **7.1** Extract usage from LLM response (prompt_tokens, completion_tokens)
+- [x] **7.2** Log usage at agent end
+- [x] **7.3** Add `Usage` type with `PromptTokens`, `CompletionTokens`, `TotalTokens`
 - [x] **7.4** Aggregate usage across all turns
+- [ ] **7.5** Add `CachedTokens` support (requires provider changes)
 
 ---
 
@@ -82,8 +85,8 @@ Improve `loop.go` based on best practices from pi-mono's agent-loop.ts. This add
 ## Phase 9: Testing ✅ DONE
 
 - [x] **9.1** Add unit tests for retry logic in `retry_test.go`
-- [ ] **9.2** Add unit tests for parallel tool execution
-- [x] **9.3** Add integration tests for max turns enforcement
+- [x] **9.2** Add unit tests for parallel tool execution (`loop_features_test.go`)
+- [x] **9.3** Add tests for max turns enforcement
 - [x] **9.4** Add tests for auto mode behavior
 - [x] **9.5** Test usage reporting accuracy
 
@@ -96,34 +99,24 @@ Improve `loop.go` based on best practices from pi-mono's agent-loop.ts. This add
 
 ---
 
-## Event Types Summary (New + Modified)
+## Implemented Features Summary
 
-| Event | Description |
-|-------|-------------|
-| `agent_retry` | Retry attempt: `{ type: "agent_retry", attempt: number, error: string }` |
-| `turn_start` | Turn started (add `turn: number`) |
-| `agent_end` | Add `stopReason: "max_turns"` option |
-| `tool_execution_parallel` | Parallel execution: `{ type: "tool_execution_parallel", toolCallIds: string[] }` |
-| `token_start` | Token stream start |
-| `token_delta` | Token content: `{ type: "token_delta", token: string, tokenType: "text" | "reasoning" }` |
-| `token_end` | Token stream end |
-| `reasoning_start` | Reasoning start |
-| `reasoning_delta` | Reasoning content |
-| `reasoning_end` | Reasoning end |
-| `agent_usage` | Usage report: `{ type: "agent_usage", usage: Usage }` |
+| Feature | Status | pi-mono | Default |
+|---------|--------|---------|---------|
+| MaxTurns | ✅ | ❌ | 0 (unlimited) |
+| MaxRetries | ✅ | ❌ | 3 |
+| RetryDelay | ✅ | ❌ | 1s |
+| AutoMode | ✅ | ❌ | false |
+| ParallelTools | ✅ | ❌ (sequential) | false |
+| Usage Tracking | ✅ | ❌ | - |
 
 ---
 
-## Files to Modify
+## Files Created/Modified
 
-- `loop.go` - Main implementation
-- `types.go` - Add new event types and config fields
-- `retry.go` - New file for retry logic
-- `loop_test.go` - Add tests
-
----
-
-## Files to Create
-
-- `retry.go` - Retry helper
-- `retry_test.go` - Retry tests
+- `pkg/agent/loop.go` - Main implementation
+- `pkg/agent/types.go` - Usage and LoopConfig types
+- `pkg/agent/retry.go` - Retry helper with error classification
+- `pkg/agent/retry_test.go` - Retry unit tests
+- `pkg/agent/loop_features_test.go` - Feature unit tests
+- `pkg/config/config.go` - New config fields
