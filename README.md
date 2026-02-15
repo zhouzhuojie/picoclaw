@@ -501,7 +501,6 @@ PicoClaw runs in a sandboxed environment by default. The agent can only access f
 | `max_turns` | `0` (unlimited) | Maximum turns in a conversation (0 = unlimited) |
 | `max_retries` | `3` | Auto-retry failed LLM/tool calls |
 | `retry_delay` | `1` | Seconds to wait between retries |
-| `auto_mode` | `false` | Auto-approve tool calls without user confirmation |
 | `parallel_tools` | `false` | Execute multiple tool calls in parallel |
 
 #### What Do These Configs Do?
@@ -513,8 +512,6 @@ PicoClaw runs in a sandboxed environment by default. The agent can only access f
 - **`max_retries`**: Automatically retries failed LLM or tool calls. Helps with temporary issues like rate limits or network timeouts. Set to `0` to disable.
 
 - **`retry_delay`**: How many seconds to wait before each retry attempt. Default `1` second works well for most cases.
-
-- **`auto_mode`**: When `true`, tool calls execute immediately without waiting for user approval. Useful for automated workflows. Default (`false`) requires confirmation.
 
 - **`parallel_tools`**: When `true`, multiple tool calls in the same response run simultaneously. Can speed up tasks but may cause race conditions. Default (`false`) runs tools one by one.
 

@@ -142,7 +142,6 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 	loopConfig.MaxTurns = cfg.Agents.Defaults.MaxTurns
 	loopConfig.MaxRetries = cfg.Agents.Defaults.MaxRetries
 	loopConfig.RetryDelay = cfg.Agents.Defaults.RetryDelay
-	loopConfig.AutoMode = cfg.Agents.Defaults.AutoMode
 	loopConfig.ParallelTools = cfg.Agents.Defaults.ParallelTools
 	// Override LLM defaults from config if provided
 	if cfg.Agents.Defaults.MaxTokens > 0 {
@@ -711,9 +710,8 @@ func (al *AgentLoop) executeSingleTool(ctx context.Context, tc providers.ToolCal
 			})
 	}
 
-	// In auto mode, always send ForUser content if present
-	// In manual mode, only send if opts.SendResponse is true
-	shouldSendToUser := al.loopConfig.AutoMode || opts.SendResponse
+	// Only send ForUser content if explicitly requested
+	shouldSendToUser := opts.SendResponse
 
 	// Send ForUser content to user immediately if not Silent
 	if !toolResult.Silent && toolResult.ForUser != "" && shouldSendToUser {
@@ -726,7 +724,6 @@ func (al *AgentLoop) executeSingleTool(ctx context.Context, tc providers.ToolCal
 			map[string]interface{}{
 				"tool":        tc.Name,
 				"content_len": len(toolResult.ForUser),
-				"auto_mode":   al.loopConfig.AutoMode,
 			})
 	}
 

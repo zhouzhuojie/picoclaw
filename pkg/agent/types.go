@@ -27,11 +27,10 @@ const (
 
 // LoopConfig holds runtime loop configuration (derived from AgentDefaults)
 type LoopConfig struct {
-	MaxTurns      int           // Max turns (0 = unlimited)
-	MaxRetries    int           // Max retries
-	RetryDelay    int           // Retry delay in seconds
-	AutoMode      bool          // Auto-approve tool calls
-	ParallelTools bool          // Parallel tool execution
+	MaxTurns      int     // Max turns (0 = unlimited)
+	MaxRetries    int     // Max retries
+	RetryDelay    int     // Retry delay in seconds
+	ParallelTools bool    // Parallel tool execution
 	// LLM defaults - can be overridden per request
 	MaxTokens   int     // Max tokens for LLM response (default: 8192)
 	Temperature float64 // Temperature for LLM (default: 0.7)
@@ -43,7 +42,6 @@ func DefaultLoopConfig() LoopConfig {
 		MaxTurns:      0,
 		MaxRetries:    3,
 		RetryDelay:    1,
-		AutoMode:      false,
 		ParallelTools: false,
 		MaxTokens:     8192,
 		Temperature:   0.7,

@@ -67,11 +67,10 @@ type AgentDefaults struct {
 	Temperature         float64 `json:"temperature" env:"PICOCLAW_AGENTS_DEFAULTS_TEMPERATURE"`
 	MaxToolIterations   int     `json:"max_tool_iterations" env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
 	// New fields for improved agent loop
-	MaxTurns       int     `json:"max_turns" env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TURNS"`             // Max turns (0 = unlimited)
-	MaxRetries     int     `json:"max_retries" env:"PICOCLAW_AGENTS_DEFAULTS_MAX_RETRIES"`         // Max retries for LLM/tools
-	RetryDelay     int     `json:"retry_delay" env:"PICOCLAW_AGENTS_DEFAULTS_RETRY_DELAY"`         // Retry delay in seconds
-	AutoMode       bool    `json:"auto_mode" env:"PICOCLAW_AGENTS_DEFAULTS_AUTO_MODE"`             // Auto-approve tool calls
-	ParallelTools  bool    `json:"parallel_tools" env:"PICOCLAW_AGENTS_DEFAULTS_PARALLEL_TOOLS"`   // Parallel tool execution
+	MaxTurns      int  `json:"max_turns" env:"PICOCLAW_AGENTS_DEFAULTS_MAX_TURNS"`       // Max turns (0 = unlimited)
+	MaxRetries    int  `json:"max_retries" env:"PICOCLAW_AGENTS_DEFAULTS_MAX_RETRIES"`   // Max retries for LLM/tools
+	RetryDelay    int  `json:"retry_delay" env:"PICOCLAW_AGENTS_DEFAULTS_RETRY_DELAY"`   // Retry delay in seconds
+	ParallelTools bool  `json:"parallel_tools" env:"PICOCLAW_AGENTS_DEFAULTS_PARALLEL_TOOLS"` // Parallel tool execution
 }
 
 type ChannelsConfig struct {
@@ -234,7 +233,6 @@ func DefaultConfig() *Config {
 				MaxTurns:       0,         // 0 = unlimited
 				MaxRetries:     3,         // Default 3 retries
 				RetryDelay:     1,         // 1 second default
-				AutoMode:       false,     // Default manual approval
 				ParallelTools:  false,     // Default sequential (matches pi-mono)
 			},
 		},

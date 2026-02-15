@@ -119,60 +119,12 @@ func TestParallelToolsOrderPreservation(t *testing.T) {
 	}
 }
 
-// TestAutoMode_Behavior tests auto mode configuration behavior
-func TestAutoMode_Behavior(t *testing.T) {
-	tests := []struct {
-		name           string
-		autoMode       bool
-		sendResponse   bool
-		wantSendToUser bool
-	}{
-		{
-			name:           "autoMode=true, sendResponse=false -> should send",
-			autoMode:       true,
-			sendResponse:   false,
-			wantSendToUser: true,
-		},
-		{
-			name:           "autoMode=false, sendResponse=true -> should send",
-			autoMode:       false,
-			sendResponse:   true,
-			wantSendToUser: true,
-		},
-		{
-			name:           "autoMode=false, sendResponse=false -> should not send",
-			autoMode:       false,
-			sendResponse:   false,
-			wantSendToUser: false,
-		},
-		{
-			name:           "autoMode=true, sendResponse=true -> should send",
-			autoMode:       true,
-			sendResponse:   true,
-			wantSendToUser: true,
-		},
-	}
-	
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Simulate the logic in executeSingleTool
-			shouldSendToUser := tt.autoMode || tt.sendResponse
-			
-			if shouldSendToUser != tt.wantSendToUser {
-				t.Errorf("autoMode=%v, sendResponse=%v: got %v, want %v",
-					tt.autoMode, tt.sendResponse, shouldSendToUser, tt.wantSendToUser)
-			}
-		})
-	}
-}
-
 // TestLoopConfig_Defaults tests default loop configuration
 func TestLoopConfig_Defaults(t *testing.T) {
 	cfg := LoopConfig{
 		MaxTurns:      0,
 		MaxRetries:    3,
 		RetryDelay:    1,
-		AutoMode:      false,
 		ParallelTools: false,
 	}
 	
@@ -185,9 +137,6 @@ func TestLoopConfig_Defaults(t *testing.T) {
 	}
 	if cfg.RetryDelay != 1 {
 		t.Errorf("RetryDelay: got %d, want 1", cfg.RetryDelay)
-	}
-	if cfg.AutoMode != false {
-		t.Errorf("AutoMode: got %v, want false", cfg.AutoMode)
 	}
 	if cfg.ParallelTools != false {
 		t.Errorf("ParallelTools: got %v, want false (sequential like pi-mono)", cfg.ParallelTools)
