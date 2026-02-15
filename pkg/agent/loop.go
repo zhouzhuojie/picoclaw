@@ -42,6 +42,9 @@ type AgentLoop struct {
 	tools          *tools.ToolRegistry
 	running        atomic.Bool
 	summarizing    sync.Map // Tracks which sessions are currently being summarized
+	// New fields for improved agent loop
+	loopConfig     LoopConfig
+	usage          Usage // Accumulates usage across all turns
 }
 
 // processOptions configures how a message is processed
@@ -134,6 +137,15 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 	contextBuilder := NewContextBuilder(workspace)
 	contextBuilder.SetToolsRegistry(toolsRegistry)
 
+	// Initialize loop config from defaults
+	loopConfig := LoopConfig{
+		MaxTurns:      cfg.Agents.Defaults.MaxTurns,
+		MaxRetries:    cfg.Agents.Defaults.MaxRetries,
+		RetryDelay:    cfg.Agents.Defaults.RetryDelay,
+		AutoMode:      cfg.Agents.Defaults.AutoMode,
+		ParallelTools: cfg.Agents.Defaults.ParallelTools,
+	}
+
 	return &AgentLoop{
 		bus:            msgBus,
 		provider:       provider,
@@ -146,6 +158,8 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 		contextBuilder: contextBuilder,
 		tools:          toolsRegistry,
 		summarizing:    sync.Map{},
+		loopConfig:     loopConfig,
+		usage:          Usage{},
 	}
 }
 
@@ -411,14 +425,33 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, opts processOptions) (str
 // Returns the final content, iteration count, and any error.
 func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.Message, opts processOptions) (string, int, error) {
 	iteration := 0
+	turnCount := 0
 	var finalContent string
+	var stopReason StopReason
+
+	// Reset usage for this run
+	al.usage = Usage{}
 
 	for iteration < al.maxIterations {
 		iteration++
+		turnCount++
+
+		// Check max turns limit
+		if al.loopConfig.MaxTurns > 0 && turnCount > al.loopConfig.MaxTurns {
+			stopReason = StopReasonMaxTurns
+			logger.InfoCF("agent", "Max turns reached, stopping",
+				map[string]interface{}{
+					"turns":      turnCount,
+					"max_turns":  al.loopConfig.MaxTurns,
+					"iterations": iteration,
+				})
+			break
+		}
 
 		logger.DebugCF("agent", "LLM iteration",
 			map[string]interface{}{
 				"iteration": iteration,
+				"turn":      turnCount,
 				"max":       al.maxIterations,
 			})
 
@@ -429,6 +462,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 		logger.DebugCF("agent", "LLM request",
 			map[string]interface{}{
 				"iteration":         iteration,
+				"turn":              turnCount,
 				"model":             al.model,
 				"messages_count":    len(messages),
 				"tools_count":       len(providerToolDefs),
@@ -445,11 +479,29 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 				"tools_json":    formatToolsForLog(providerToolDefs),
 			})
 
-		// Call LLM
-		response, err := al.provider.Chat(ctx, messages, providerToolDefs, al.model, map[string]interface{}{
-			"max_tokens":  8192,
-			"temperature": 0.7,
-		})
+		// Call LLM with retry logic
+		var response *providers.LLMResponse
+		var err error
+
+		if al.loopConfig.MaxRetries > 0 {
+			// Use retry wrapper
+			retryOpts := RetryOptions{
+				MaxRetries: al.loopConfig.MaxRetries,
+				Delay:      time.Duration(al.loopConfig.RetryDelay) * time.Second,
+			}
+			response, err = WithRetry(ctx, func() (*providers.LLMResponse, error) {
+				return al.provider.Chat(ctx, messages, providerToolDefs, al.model, map[string]interface{}{
+					"max_tokens":  8192,
+					"temperature": 0.7,
+				})
+			}, retryOpts)
+		} else {
+			// No retry
+			response, err = al.provider.Chat(ctx, messages, providerToolDefs, al.model, map[string]interface{}{
+				"max_tokens":  8192,
+				"temperature": 0.7,
+			})
+		}
 
 		if err != nil {
 			logger.ErrorCF("agent", "LLM call failed",
@@ -460,12 +512,30 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 			return "", iteration, fmt.Errorf("LLM call failed: %w", err)
 		}
 
+		// Track usage
+		if response.Usage != nil && (response.Usage.PromptTokens > 0 || response.Usage.CompletionTokens > 0) {
+			al.usage.Add(Usage{
+				PromptTokens:     response.Usage.PromptTokens,
+				CompletionTokens: response.Usage.CompletionTokens,
+				TotalTokens:      response.Usage.TotalTokens,
+			})
+			logger.DebugCF("agent", "LLM usage",
+				map[string]interface{}{
+					"iteration":         iteration,
+					"prompt_tokens":    response.Usage.PromptTokens,
+					"completion_tokens": response.Usage.CompletionTokens,
+					"total_tokens":      response.Usage.TotalTokens,
+				})
+		}
+
 		// Check if no tool calls - we're done
 		if len(response.ToolCalls) == 0 {
 			finalContent = response.Content
+			stopReason = StopReasonEnd
 			logger.InfoCF("agent", "LLM response without tool calls (direct answer)",
 				map[string]interface{}{
 					"iteration":     iteration,
+					"turn":          turnCount,
 					"content_chars": len(finalContent),
 				})
 			break
@@ -481,6 +551,7 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 				"tools":     toolNames,
 				"count":     len(response.ToolCalls),
 				"iteration": iteration,
+				"turn":      turnCount,
 			})
 
 		// Build assistant message with tool calls
@@ -504,68 +575,181 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 		// Save assistant message with tool calls to session
 		al.sessions.AddFullMessage(opts.SessionKey, assistantMsg)
 
-		// Execute tool calls
-		for _, tc := range response.ToolCalls {
-			// Log tool call with arguments preview
-			argsJSON, _ := json.Marshal(tc.Arguments)
-			argsPreview := utils.Truncate(string(argsJSON), 200)
-			logger.InfoCF("agent", fmt.Sprintf("Tool call: %s(%s)", tc.Name, argsPreview),
-				map[string]interface{}{
-					"tool":      tc.Name,
-					"iteration": iteration,
-				})
+		// Execute tool calls (parallel or sequential based on config)
+		var toolResults []providers.Message
+		if al.loopConfig.ParallelTools && len(response.ToolCalls) > 1 {
+			toolResults = al.executeToolsParallel(ctx, response.ToolCalls, opts)
+		} else {
+			toolResults = al.executeToolsSequential(ctx, response.ToolCalls, opts)
+		}
 
-			// Create async callback for tools that implement AsyncTool
-			// NOTE: Following openclaw's design, async tools do NOT send results directly to users.
-			// Instead, they notify the agent via PublishInbound, and the agent decides
-			// whether to forward the result to the user (in processSystemMessage).
-			asyncCallback := func(callbackCtx context.Context, result *tools.ToolResult) {
-				// Log the async completion but don't send directly to user
-				// The agent will handle user notification via processSystemMessage
-				if !result.Silent && result.ForUser != "" {
-					logger.InfoCF("agent", "Async tool completed, agent will handle notification",
-						map[string]interface{}{
-							"tool":        tc.Name,
-							"content_len": len(result.ForUser),
-						})
-				}
-			}
-
-			toolResult := al.tools.ExecuteWithContext(ctx, tc.Name, tc.Arguments, opts.Channel, opts.ChatID, asyncCallback)
-
-			// Send ForUser content to user immediately if not Silent
-			if !toolResult.Silent && toolResult.ForUser != "" && opts.SendResponse {
-				al.bus.PublishOutbound(bus.OutboundMessage{
-					Channel: opts.Channel,
-					ChatID:  opts.ChatID,
-					Content: toolResult.ForUser,
-				})
-				logger.DebugCF("agent", "Sent tool result to user",
-					map[string]interface{}{
-						"tool":        tc.Name,
-						"content_len": len(toolResult.ForUser),
-					})
-			}
-
-			// Determine content for LLM based on tool result
-			contentForLLM := toolResult.ForLLM
-			if contentForLLM == "" && toolResult.Err != nil {
-				contentForLLM = toolResult.Err.Error()
-			}
-
-			toolResultMsg := providers.Message{
-				Role:       "tool",
-				Content:    contentForLLM,
-				ToolCallID: tc.ID,
-			}
-			messages = append(messages, toolResultMsg)
-
-			// Save tool result message to session
-			al.sessions.AddFullMessage(opts.SessionKey, toolResultMsg)
+		// Add tool results to messages
+		for _, tr := range toolResults {
+			messages = append(messages, tr)
+			al.sessions.AddFullMessage(opts.SessionKey, tr)
 		}
 	}
 
+	// Log final usage
+	if al.usage.TotalTokens > 0 {
+		logger.InfoCF("agent", "Total usage",
+			map[string]interface{}{
+				"iterations":         iteration,
+				"prompt_tokens":      al.usage.PromptTokens,
+				"completion_tokens": al.usage.CompletionTokens,
+				"total_tokens":      al.usage.TotalTokens,
+				"stop_reason":       stopReason,
+			})
+	}
+
 	return finalContent, iteration, nil
+}
+
+// executeToolsSequential executes tool calls sequentially (original behavior)
+func (al *AgentLoop) executeToolsSequential(ctx context.Context, toolCalls []providers.ToolCall, opts processOptions) []providers.Message {
+	results := make([]providers.Message, 0, len(toolCalls))
+
+	for _, tc := range toolCalls {
+		result := al.executeSingleTool(ctx, tc, opts)
+		results = append(results, result)
+	}
+
+	return results
+}
+
+// executeToolsParallel executes tool calls in parallel
+func (al *AgentLoop) executeToolsParallel(ctx context.Context, toolCalls []providers.ToolCall, opts processOptions) []providers.Message {
+	// Use channels to collect results in order
+	type resultWithIndex struct {
+		index  int
+		result providers.Message
+	}
+
+	resultChan := make(chan resultWithIndex, len(toolCalls))
+	var wg sync.WaitGroup
+
+	logger.InfoCF("agent", "Executing tools in parallel",
+		map[string]interface{}{
+			"count": len(toolCalls),
+		})
+
+	// Execute all tools concurrently
+	for i, tc := range toolCalls {
+		wg.Add(1)
+		go func(index int, tc providers.ToolCall) {
+			defer wg.Done()
+			result := al.executeSingleTool(ctx, tc, opts)
+			resultChan <- resultWithIndex{index: index, result: result}
+		}(i, tc)
+	}
+
+	// Close channel when all done
+	go func() {
+		wg.Wait()
+		close(resultChan)
+	}()
+
+	// Collect results in order
+	results := make([]providers.Message, len(toolCalls))
+	for r := range resultChan {
+		results[r.index] = r.result
+	}
+
+	return results
+}
+
+// executeSingleTool executes a single tool call with retry support
+func (al *AgentLoop) executeSingleTool(ctx context.Context, tc providers.ToolCall, opts processOptions) providers.Message {
+	// Log tool call with arguments preview
+	argsJSON, _ := json.Marshal(tc.Arguments)
+	argsPreview := utils.Truncate(string(argsJSON), 200)
+	logger.InfoCF("agent", fmt.Sprintf("Tool call: %s(%s)", tc.Name, argsPreview),
+		map[string]interface{}{
+			"tool":      tc.Name,
+			"tool_id":   tc.ID,
+		})
+
+	// Create async callback for tools that implement AsyncTool
+	asyncCallback := func(callbackCtx context.Context, result *tools.ToolResult) {
+		if !result.Silent && result.ForUser != "" {
+			logger.InfoCF("agent", "Async tool completed, agent will handle notification",
+				map[string]interface{}{
+					"tool":        tc.Name,
+					"content_len": len(result.ForUser),
+				})
+		}
+	}
+
+	// Execute tool with retry
+	var toolResult *tools.ToolResult
+	var toolErr error
+
+	if al.loopConfig.MaxRetries > 0 {
+		retryOpts := RetryOptions{
+			MaxRetries: al.loopConfig.MaxRetries,
+			Delay:      time.Duration(al.loopConfig.RetryDelay) * time.Second,
+		}
+		toolResult, toolErr = WithRetry(ctx, func() (*tools.ToolResult, error) {
+			return al.executeToolOnce(tc.Name, tc.Arguments, opts.Channel, opts.ChatID, asyncCallback), nil
+		}, retryOpts)
+	} else {
+		toolResult = al.executeToolOnce(tc.Name, tc.Arguments, opts.Channel, opts.ChatID, asyncCallback)
+		if toolResult.Err != nil {
+			toolErr = toolResult.Err
+		}
+	}
+
+	// Handle tool error
+	if toolErr != nil {
+		logger.ErrorCF("agent", "Tool execution failed",
+			map[string]interface{}{
+				"tool":  tc.Name,
+				"error": toolErr.Error(),
+			})
+	}
+
+	// In auto mode, always send ForUser content if present
+	// In manual mode, only send if opts.SendResponse is true
+	shouldSendToUser := al.loopConfig.AutoMode || opts.SendResponse
+
+	// Send ForUser content to user immediately if not Silent
+	if !toolResult.Silent && toolResult.ForUser != "" && shouldSendToUser {
+		al.bus.PublishOutbound(bus.OutboundMessage{
+			Channel: opts.Channel,
+			ChatID:  opts.ChatID,
+			Content: toolResult.ForUser,
+		})
+		logger.DebugCF("agent", "Sent tool result to user",
+			map[string]interface{}{
+				"tool":        tc.Name,
+				"content_len": len(toolResult.ForUser),
+				"auto_mode":   al.loopConfig.AutoMode,
+			})
+	}
+
+	// Determine content for LLM based on tool result
+	contentForLLM := toolResult.ForLLM
+	if contentForLLM == "" && toolResult.Err != nil {
+		contentForLLM = toolResult.Err.Error()
+	}
+
+	toolResultMsg := providers.Message{
+		Role:       "tool",
+		Content:    contentForLLM,
+		ToolCallID: tc.ID,
+	}
+
+	return toolResultMsg
+}
+
+// executeToolOnce executes a tool once without retry
+func (al *AgentLoop) executeToolOnce(toolName string, args map[string]interface{}, channel, chatID string, asyncCallback func(context.Context, *tools.ToolResult)) *tools.ToolResult {
+	return al.tools.ExecuteWithContext(context.Background(), toolName, args, channel, chatID, asyncCallback)
+}
+
+// GetUsage returns the accumulated usage for the last run
+func (al *AgentLoop) GetUsage() Usage {
+	return al.usage
 }
 
 // updateToolContexts updates the context for tools that need channel/chatID info.
