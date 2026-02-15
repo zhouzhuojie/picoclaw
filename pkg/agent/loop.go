@@ -138,12 +138,18 @@ func NewAgentLoop(cfg *config.Config, msgBus *bus.MessageBus, provider providers
 	contextBuilder.SetToolsRegistry(toolsRegistry)
 
 	// Initialize loop config from defaults
-	loopConfig := LoopConfig{
-		MaxTurns:      cfg.Agents.Defaults.MaxTurns,
-		MaxRetries:    cfg.Agents.Defaults.MaxRetries,
-		RetryDelay:    cfg.Agents.Defaults.RetryDelay,
-		AutoMode:      cfg.Agents.Defaults.AutoMode,
-		ParallelTools: cfg.Agents.Defaults.ParallelTools,
+	loopConfig := DefaultLoopConfig()
+	loopConfig.MaxTurns = cfg.Agents.Defaults.MaxTurns
+	loopConfig.MaxRetries = cfg.Agents.Defaults.MaxRetries
+	loopConfig.RetryDelay = cfg.Agents.Defaults.RetryDelay
+	loopConfig.AutoMode = cfg.Agents.Defaults.AutoMode
+	loopConfig.ParallelTools = cfg.Agents.Defaults.ParallelTools
+	// Override LLM defaults from config if provided
+	if cfg.Agents.Defaults.MaxTokens > 0 {
+		loopConfig.MaxTokens = cfg.Agents.Defaults.MaxTokens
+	}
+	if cfg.Agents.Defaults.Temperature > 0 {
+		loopConfig.Temperature = cfg.Agents.Defaults.Temperature
 	}
 
 	return &AgentLoop{
@@ -466,49 +472,10 @@ func (al *AgentLoop) runLLMIteration(ctx context.Context, messages []providers.M
 		providerToolDefs := al.tools.ToProviderDefs()
 
 		// Log LLM request details
-		logger.DebugCF("agent", "LLM request",
-			map[string]interface{}{
-				"iteration":         iteration,
-				"turn":              turnCount,
-				"model":             al.model,
-				"messages_count":    len(messages),
-				"tools_count":       len(providerToolDefs),
-				"max_tokens":        8192,
-				"temperature":       0.7,
-				"system_prompt_len": len(messages[0].Content),
-			})
+		al.logLLMRequest(iteration, turnCount, messages, providerToolDefs)
 
-		// Log full messages (detailed)
-		logger.DebugCF("agent", "Full LLM request",
-			map[string]interface{}{
-				"iteration":     iteration,
-				"messages_json": formatMessagesForLog(messages),
-				"tools_json":    formatToolsForLog(providerToolDefs),
-			})
-
-		// Call LLM with retry logic
-		var response *providers.LLMResponse
-		var err error
-
-		if al.loopConfig.MaxRetries > 0 {
-			// Use retry wrapper
-			retryOpts := RetryOptions{
-				MaxRetries: al.loopConfig.MaxRetries,
-				Delay:      time.Duration(al.loopConfig.RetryDelay) * time.Second,
-			}
-			response, err = WithRetry(ctx, func() (*providers.LLMResponse, error) {
-				return al.provider.Chat(ctx, messages, providerToolDefs, al.model, map[string]interface{}{
-					"max_tokens":  8192,
-					"temperature": 0.7,
-				})
-			}, retryOpts)
-		} else {
-			// No retry
-			response, err = al.provider.Chat(ctx, messages, providerToolDefs, al.model, map[string]interface{}{
-				"max_tokens":  8192,
-				"temperature": 0.7,
-			})
-		}
+		// Call LLM with retry
+		response, err := al.callLLMWithRetry(ctx, messages, providerToolDefs)
 
 		if err != nil {
 			logger.ErrorCF("agent", "LLM call failed",
@@ -781,6 +748,48 @@ func (al *AgentLoop) executeSingleTool(ctx context.Context, tc providers.ToolCal
 // executeToolOnce executes a tool once without retry
 func (al *AgentLoop) executeToolOnce(toolName string, args map[string]interface{}, channel, chatID string, asyncCallback func(context.Context, *tools.ToolResult)) *tools.ToolResult {
 	return al.tools.ExecuteWithContext(context.Background(), toolName, args, channel, chatID, asyncCallback)
+}
+
+// callLLMWithRetry calls the LLM with optional retry logic
+func (al *AgentLoop) callLLMWithRetry(ctx context.Context, messages []providers.Message, providerToolDefs []providers.ToolDefinition) (*providers.LLMResponse, error) {
+	llmOpts := map[string]interface{}{
+		"max_tokens":  al.loopConfig.MaxTokens,
+		"temperature": al.loopConfig.Temperature,
+	}
+
+	if al.loopConfig.MaxRetries > 0 {
+		retryOpts := RetryOptions{
+			MaxRetries: al.loopConfig.MaxRetries,
+			Delay:      time.Duration(al.loopConfig.RetryDelay) * time.Second,
+		}
+		return WithRetry(ctx, func() (*providers.LLMResponse, error) {
+			return al.provider.Chat(ctx, messages, providerToolDefs, al.model, llmOpts)
+		}, retryOpts)
+	}
+
+	return al.provider.Chat(ctx, messages, providerToolDefs, al.model, llmOpts)
+}
+
+// logLLMRequest logs LLM request details
+func (al *AgentLoop) logLLMRequest(iteration, turnCount int, messages []providers.Message, providerToolDefs []providers.ToolDefinition) {
+	logger.DebugCF("agent", "LLM request",
+		map[string]interface{}{
+			"iteration":         iteration,
+			"turn":              turnCount,
+			"model":             al.model,
+			"messages_count":    len(messages),
+			"tools_count":       len(providerToolDefs),
+			"max_tokens":        al.loopConfig.MaxTokens,
+			"temperature":       al.loopConfig.Temperature,
+			"system_prompt_len": len(messages[0].Content),
+		})
+
+	logger.DebugCF("agent", "Full LLM request",
+		map[string]interface{}{
+			"iteration":     iteration,
+			"messages_json": formatMessagesForLog(messages),
+			"tools_json":    formatToolsForLog(providerToolDefs),
+		})
 }
 
 // GetUsage returns the accumulated usage for the last run
